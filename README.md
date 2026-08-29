@@ -4,7 +4,7 @@
 [![Backend](https://img.shields.io/badge/Backend-Render-blue?style=flat-square&logo=render)](https://rag-college-chatbot.onrender.com/api/health)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An enterprise-grade, Retrieval-Augmented Generation (RAG) academic assistant and document ingestion platform engineered for **Apex Institute of Technology & Science (AITS)**.
+An enterprise-grade, Retrieval-Augmented Generation (RAG) academic assistant and document ingestion platform engineered for **Apex Institute of Technology & Science (AITS), Bengaluru**.
 
 ---
 
@@ -16,19 +16,29 @@ An enterprise-grade, Retrieval-Augmented Generation (RAG) academic assistant and
 ## 2. Problem Statement
 Navigating complex academic regulations, admission deadlines, fee structures, hostel policies, and course syllabi often involves reading hundreds of pages across disparate PDFs and web portals. Students and applicants waste valuable time attempting to retrieve specific policy answers.
 
-**CampusMind RAG** resolves this problem by grounding AI conversational responses directly in verified college documents using vector search retrieval. Answers feature strict inline source citations (`[Source 1: Official Admissions Guide]`), confidence relevance scoring, administrative knowledge ingestion tools, and interactive academic course exploration.
+**CampusMind RAG** resolves this problem by grounding AI conversational responses directly in verified college documents using vector search retrieval. Answers feature strict inline source citations (`[SRC-1: Official Admissions Guide]`), confidence relevance scoring, administrative knowledge ingestion tools, and interactive academic course exploration.
 
 ---
 
-## 3. Features
+## 3. Features & Sample Query Data
+
+### Key Features
 - **Retrieval-Augmented Generation (RAG) Engine**: Sliding-window document chunking, TF-IDF / Cosine similarity vector search, and contextual answer synthesis.
 - **Source Citation Transparency**: Every assistant answer contains clickable citations displaying exact document titles, department origin, matching vector chunk snippets, and relevance scores.
 - **Domain Category Filtering**: Filter query contexts across Admissions, Academics, Financials, Campus Life, Placements, and FAQs.
 - **Admin Knowledge Hub (CRUD)**: Upload and ingest new policy documents, view indexed vector chunks, and remove outdated materials in real-time.
-- **Course & Academic Directory**: Searchable catalog of degree programs (B.Tech CS, B.Tech AI & DS, M.Tech Cybersecurity, Ph.D. Robotics) with fee schedules and department contact details.
+- **Course & Academic Directory**: Searchable catalog of degree programs (B.Tech CS, B.Tech AI & DS, M.Tech Cybersecurity, Ph.D. Robotics) formatted in Indian Rupees (₹) with fee schedules and department contact details.
 - **Analytics & Health Dashboard**: Telemetry metrics tracking ingested document counts, indexed vector chunks, chunk length averages, and grounding health.
-- **Authentication & Role Access**: JWT-based login/registration with student, faculty, and admin roles, including quick one-click demo login accounts.
-- **Responsive Dynamic Interface**: Modern glassmorphism dark/light design system with custom micro-animations, skeleton loaders, and touch-friendly controls.
+- **Centered Modern Auth Interface**: JWT-based login/registration with student, faculty, and admin roles.
+
+### Sample Test Queries & Verified Data
+| Category | Sample Question | Grounded Answer Data |
+| :--- | :--- | :--- |
+| **Admissions** | *"What are the admission deadlines & JEE ranks for 2026?"* | • Phase 1 Nov 15, Phase 2 Jan 31, Final Counseling April 15.<br>• Min 60% in 10+2 (PCM) (55% for SC/ST/OBC).<br>• JEE Main (> 85 Percentile) or AITS-NET Rank < 5000.<br>• Form Fee: ₹ 1,000 (Waiver for SC/ST & EWS). |
+| **Tuition Fees** | *"What are the B.Tech tuition fees and scholarships?"* | • B.Tech Tuition: **₹ 1,25,000 / semester** (₹ 2,50,000/year).<br>• M.Tech Tuition: **₹ 95,000 / semester**.<br>• Founder Merit: 100% waiver for JEE Main < 2000.<br>• EWS Aid: Up to 70% support (family income < ₹ 3.5 LPA). |
+| **Hostels & Mess** | *"What are the hostel charges and mess menu?"* | • Ramanujan Hall (Boys): Twin AC (₹ 65,000/sem) \| Non-AC (₹ 42,000/sem).<br>• Kalpana Chawla Hall (Girls): Twin AC (₹ 65,000/sem) \| Deluxe (₹ 90,000/sem).<br>• Mess Fee: ₹ 36,000/semester (Veg, Non-Veg, Jain menu). |
+| **Placements** | *"What is the highest and average LPA placement package?"* | • Highest Domestic: **₹ 54 LPA**.<br>• Highest International: **₹ 1.25 Crore per annum**.<br>• Average CS/AI Package: **₹ 14.5 LPA** (Median ₹ 9.8 LPA).<br>• Top Recruiters: TCS, Infosys, Google India, Microsoft, Amazon, Nvidia, Deloitte. |
+| **Campus Info** | *"What is the campus address and library timings?"* | • Address: Electronic City Phase 1, Hosur Main Road, Bengaluru, Karnataka - **560100**.<br>• Library Timings: 8:00 AM to 10:00 PM (24/7 during exams).<br>• Bus Fee: ₹ 18,000 / semester. |
 
 ---
 
@@ -47,13 +57,13 @@ Navigating complex academic regulations, admission deadlines, fee structures, ho
 |  [Logo] CampusMind RAG    [RAG Assistant] [Course Directory] [Knowledge Hub]      |
 +-----------------------------------------------------------------------------------+
 |  Filter Domain: [All]                                [Clear History]               |
-|  Suggested: (Admissions) (Tuition Fees) (CS Curriculum) (Hostels) (Placements)    |
+|  Suggested: (Admissions & JEE Ranks) (Tuition Fees ₹) (CS Curriculum) (Hostels)  |
 |                                                                                   |
 |  +-----------------------------------------------------------------------------+  |
 |  | [Bot] AITS Assistant (RAG Grounded)                     [98% Confidence]   |  |
 |  | Based on the Official Admissions Guide 2026-2027:                          |  |
-|  | • Deadlines: Early Decision is Nov 15, Regular Round 1 is Jan 31.           |  |
-|  | • Eligibility: Minimum 60% in 10+2 with PCM. Accepted scores: SAT (1250+). |  |
+|  | • Deadlines: Phase 1 Nov 15, Phase 2 Jan 31.                               |  |
+|  | • Eligibility: Minimum 60% in 10+2 (PCM). Accepted: JEE Main (>85 percentile).|  |
 |  |                                                                             |  |
 |  | Grounded Sources: [SRC-1: Official Admissions Guide 2026]                    |  |
 |  +-----------------------------------------------------------------------------+  |
@@ -101,7 +111,7 @@ cp .env.example .env
 
 # Start development server
 npm run dev
-# Backend server will run on http://localhost:5000
+# Backend server will run on http://localhost:5001
 ```
 
 ### 2. Frontend Setup
@@ -126,7 +136,7 @@ npm run dev
 
 ### Backend (`backend/.env`)
 ```env
-PORT=5000
+PORT=5001
 NODE_ENV=development
 JWT_SECRET=your_jwt_secret_key_here
 MONGO_URI=mongodb+srv://user:password@cluster0.example.mongodb.net/rag_college_db
@@ -135,7 +145,7 @@ MAX_FILE_SIZE_MB=10
 
 ### Frontend (`frontend/.env`)
 ```env
-VITE_API_BASE_URL=http://localhost:5000/api
+VITE_API_BASE_URL=http://localhost:5001/api
 ```
 
 > **Important**: Never commit actual API keys, database passwords, or secret keys to GitHub. Use environment variables.
