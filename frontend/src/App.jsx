@@ -9,16 +9,61 @@ import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
-/* ── Helper: Build a fresh welcome message ── */
+/* ═══════════════════════════════════════════════
+ *  HELPERS
+ * ═══════════════════════════════════════════════ */
+
+/** Generate a collision-safe unique ID */
+const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+/** Build a fresh welcome message */
 const makeWelcome = (userName) => ({
-  id: `msg-welcome-${Date.now()}`,
-  sender: "bot",
+  id: uid('msg-welcome'),
+  sender: 'bot',
   text: `Hello${userName ? ' ' + userName : ''}! Welcome to Apex Institute of Technology & Science (AITS) Assistant. How can I help you today with admissions, courses, fees, or hostel facilities?`,
   timestamp: new Date().toISOString(),
   citations: [],
-  confidenceScore: 1.0
+  confidenceScore: 1.0,
 });
 
+/** localStorage key for a user's chat history */
+const chatStorageKey = (userId) => `aits_chat_${userId || 'guest'}`;
+
+/** Save chat array to localStorage */
+const saveChatToStorage = (userId, messages) => {
+  try {
+    localStorage.setItem(chatStorageKey(userId), JSON.stringify(messages));
+  } catch { /* storage full — silently ignore */ }
+};
+
+/** Load chat array from localStorage (returns null if nothing saved) */
+const loadChatFromStorage = (userId) => {
+  try {
+    const raw = localStorage.getItem(chatStorageKey(userId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* corrupt data — ignore */ }
+  return null;
+};
+
+/** Clear chat from localStorage */
+const clearChatStorage = (userId) => {
+  try { localStorage.removeItem(chatStorageKey(userId)); } catch {}
+};
+
+/** Decode a JWT payload without any library (no verification — display only) */
+const decodeJwtPayload = (token) => {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch { return null; }
+};
+
+/* ═══════════════════════════════════════════════
+ *  APP COMPONENT
+ * ═══════════════════════════════════════════════ */
 export default function App() {
   /* ── Core UI state ── */
   const [activeTab, setActiveTab] = useState('chat');
@@ -39,6 +84,10 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState([makeWelcome()]);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
 
+  /* Ref that always holds the latest user — prevents stale closures */
+  const userRef = useRef(null);
+  useEffect(() => { userRef.current = user; }, [user]);
+
   const [documents, setDocuments] = useState([]);
   const [chunks, setChunks] = useState([]);
   const [stats, setStats] = useState(null);
@@ -49,23 +98,89 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  /* ── Reset the chat to a clean welcome ── */
-  const resetChatSession = useCallback((userName) => {
+  /* ── Persist chat whenever it changes ── */
+  useEffect(() => {
+    const userId = userRef.current ? userRef.current.id : 'guest';
+    saveChatToStorage(userId, chatHistory);
+  }, [chatHistory]);
+
+  /* ── Reset the chat to a clean welcome (or load from storage) ── */
+  const resetChatSession = useCallback((userId, userName) => {
     const nextId = sessionRef.current + 1;
     sessionRef.current = nextId;
     setChatSessionId(nextId);
-    setChatHistory([makeWelcome(userName)]);
+
+    // Try to load persisted history for this user
+    const saved = loadChatFromStorage(userId);
+    if (saved) {
+      setChatHistory(saved);
+    } else {
+      setChatHistory([makeWelcome(userName)]);
+    }
   }, []);
 
-  /* ── Backend health, docs, chunks, stats ── */
+  /* ═══════════════════════════════════════════════
+   *  BOOT SEQUENCE
+   * ═══════════════════════════════════════════════ */
   useEffect(() => {
+    restoreUserSession();
     fetchHealthWithRetry();
     fetchDocuments();
     fetchChunks();
     fetchStats();
-    checkStoredUser();
   }, []);
 
+  /**
+   * Restore user session on mount:
+   *  1. Immediately decode the JWT to get user info (no network wait).
+   *  2. Load chat from localStorage for that user.
+   *  3. Validate token against the backend in the background.
+   */
+  const restoreUserSession = async () => {
+    const token = localStorage.getItem('aits_token');
+    if (!token) return;
+
+    // Step 1: Instant JWT decode — user appears logged in immediately
+    const payload = decodeJwtPayload(token);
+    if (payload && payload.id && payload.name) {
+      const decodedUser = {
+        id: payload.id,
+        name: payload.name,
+        email: payload.email || '',
+        role: payload.role || 'student',
+        department: payload.department || 'General',
+      };
+      setUser(decodedUser);
+      userRef.current = decodedUser;
+
+      // Step 2: Load persisted chat for this user
+      resetChatSession(decodedUser.id, decodedUser.name);
+    }
+
+    // Step 3: Background validation against the backend
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Refresh user with full server data (may include updated department etc.)
+        setUser(data.user);
+        userRef.current = data.user;
+      } else {
+        // Token invalid on server — sign out
+        localStorage.removeItem('aits_token');
+        setUser(null);
+        userRef.current = null;
+        resetChatSession('guest', null);
+      }
+    } catch {
+      // Backend unreachable (Render cold start) — keep the decoded user, it's fine
+      console.warn('Backend unreachable for /auth/me — keeping JWT-decoded session');
+    }
+  };
+
+  /* ── Backend health check with retry ── */
   const fetchHealthWithRetry = async (retries = 3) => {
     try {
       const res = await fetch(`${API_BASE}/health`);
@@ -80,34 +195,17 @@ export default function App() {
 
   const fetchDocuments = async () => {
     try { const r = await fetch(`${API_BASE}/knowledge`); const d = await r.json(); if (d.success) setDocuments(d.documents); }
-    catch (e) { console.warn("Failed to fetch documents:", e); }
+    catch (e) { console.warn('Failed to fetch documents:', e); }
   };
 
   const fetchChunks = async () => {
     try { const r = await fetch(`${API_BASE}/knowledge/chunks`); const d = await r.json(); if (d.success) setChunks(d.chunks); }
-    catch (e) { console.warn("Failed to fetch vector chunks:", e); }
+    catch (e) { console.warn('Failed to fetch vector chunks:', e); }
   };
 
   const fetchStats = async () => {
     try { const r = await fetch(`${API_BASE}/stats`); const d = await r.json(); if (d.success) setStats(d.stats); }
-    catch (e) { console.warn("Failed to fetch stats:", e); }
-  };
-
-  const checkStoredUser = async () => {
-    const token = localStorage.getItem('aits_token');
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (data.success) {
-        setUser(data.user);
-        resetChatSession(data.user.name);
-      } else {
-        localStorage.removeItem('aits_token');
-      }
-    } catch {
-      localStorage.removeItem('aits_token');
-    }
+    catch (e) { console.warn('Failed to fetch stats:', e); }
   };
 
   /* ── Fetch with retry (Render cold-start) ── */
@@ -122,14 +220,19 @@ export default function App() {
     }
   };
 
-  /* ── Chat: Send Message ──
-   *  Captures sessionRef.current BEFORE the await.  If the user switches
-   *  accounts while the request is in flight, the response is dropped
-   *  because the captured snapshot no longer matches the live ref.
+  /* ═══════════════════════════════════════════════
+   *  CHAT HANDLERS
+   * ═══════════════════════════════════════════════ */
+
+  /**
+   * Send a message.  Uses userRef (not user) to avoid stale closures.
+   * Captures sessionRef snapshot to discard in-flight responses if user switches.
    */
   const handleSendMessage = async (messageText, categoryFilter) => {
-    const snapshotSession = sessionRef.current;          // capture
+    const snapshotSession = sessionRef.current;
+    const currentUser = userRef.current;
     setIsLoadingChat(true);
+
     try {
       const res = await fetchWithRetry(`${API_BASE}/chat/query`, {
         method: 'POST',
@@ -137,9 +240,9 @@ export default function App() {
         body: JSON.stringify({
           message: messageText,
           categoryFilter,
-          userId: user ? user.id : 'guest',
-          userName: user ? user.name : 'Guest'
-        })
+          userId: currentUser ? currentUser.id : 'guest',
+          userName: currentUser ? currentUser.name : 'Guest',
+        }),
       });
       const data = await res.json();
       if (data.success && sessionRef.current === snapshotSession) {
@@ -150,8 +253,8 @@ export default function App() {
       if (sessionRef.current === snapshotSession) {
         setChatHistory((prev) => [
           ...prev,
-          { id: `usr-${Date.now()}`, sender: 'user', text: messageText },
-          { id: `bot-${Date.now()}`, sender: 'bot', text: 'Backend server is starting up or unreachable. Please wait ~20 seconds for Render server to wake up, or check VITE_API_BASE_URL setting.' }
+          { id: uid('usr'), sender: 'user', text: messageText },
+          { id: uid('bot'), sender: 'bot', text: 'Backend server is starting up or unreachable. Please wait ~20 seconds for Render server to wake up, or check VITE_API_BASE_URL setting.' },
         ]);
         setApiStatus(false);
       }
@@ -161,25 +264,39 @@ export default function App() {
     }
   };
 
-  /* ── Chat: Clear History ── */
   const handleClearHistory = async () => {
+    const currentUser = userRef.current;
     try {
       await fetch(`${API_BASE}/chat/history`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user ? user.id : 'guest' })
+        body: JSON.stringify({ userId: currentUser ? currentUser.id : 'guest' }),
       });
     } catch {}
-    resetChatSession(user?.name);
-    showToast("Chat history cleared", "info");
+    clearChatStorage(currentUser ? currentUser.id : 'guest');
+    resetChatSession(currentUser ? currentUser.id : 'guest', currentUser?.name);
+    // Overwrite with a "cleared" welcome instead of persisted
+    const clearedWelcome = [{
+      id: uid('msg-cleared'),
+      sender: 'bot',
+      text: 'Chat history cleared. How can I assist you with AITS college information?',
+      timestamp: new Date().toISOString(),
+      citations: [],
+      confidenceScore: 1.0,
+    }];
+    setChatHistory(clearedWelcome);
+    saveChatToStorage(currentUser ? currentUser.id : 'guest', clearedWelcome);
+    showToast('Chat history cleared', 'info');
   };
 
-  /* ── Knowledge Base ── */
+  /* ═══════════════════════════════════════════════
+   *  KNOWLEDGE BASE HANDLERS
+   * ═══════════════════════════════════════════════ */
   const handleIngestDocument = async (docData) => {
     try {
       const res = await fetch(`${API_BASE}/knowledge/upload`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(docData) });
       const data = await res.json();
-      if (data.success) { fetchDocuments(); fetchChunks(); fetchStats(); showToast("Document ingested successfully!", "success"); return { success: true }; }
+      if (data.success) { fetchDocuments(); fetchChunks(); fetchStats(); showToast('Document ingested successfully!', 'success'); return { success: true }; }
       return { success: false, message: data.message };
     } catch (err) { return { success: false, message: err.message }; }
   };
@@ -188,16 +305,16 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/knowledge/${id}`, { method: 'DELETE' });
       const data = await res.json();
-      if (data.success) { fetchDocuments(); fetchChunks(); fetchStats(); showToast("Document removed from knowledge base", "info"); }
-    } catch (err) { console.error("Delete failed:", err); }
+      if (data.success) { fetchDocuments(); fetchChunks(); fetchStats(); showToast('Document removed from knowledge base', 'info'); }
+    } catch (err) { console.error('Delete failed:', err); }
   };
 
   /* ═══════════════════════════════════════════════
-   *  AUTH HANDLERS — these are the key user-switch
-   *  points.  Every one calls resetChatSession()
-   *  which bumps the session counter, changes the
-   *  React key, and sets chatHistory to a single
-   *  fresh welcome message.
+   *  AUTH HANDLERS
+   *  Every handler calls resetChatSession() which:
+   *   1. Bumps sessionRef counter (drops in-flight responses)
+   *   2. Changes chatSessionId (forces ChatInterface remount)
+   *   3. Loads persisted chat from localStorage (or fresh welcome)
    * ═══════════════════════════════════════════════ */
 
   const handleLogin = async (email, password) => {
@@ -205,13 +322,14 @@ export default function App() {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('aits_token', data.token);
         setUser(data.user);
-        resetChatSession(data.user.name);                // ← wipe chat
+        userRef.current = data.user;
+        resetChatSession(data.user.id, data.user.name);
         showToast(`Welcome back, ${data.user.name}!`, 'success');
         return { success: true };
       }
@@ -224,13 +342,16 @@ export default function App() {
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData)
+        body: JSON.stringify(userData),
       });
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('aits_token', data.token);
         setUser(data.user);
-        resetChatSession(data.user.name);                // ← wipe chat
+        userRef.current = data.user;
+        // New user — clear any stale guest storage and start fresh
+        clearChatStorage(data.user.id);
+        resetChatSession(data.user.id, data.user.name);
         showToast(`Account created successfully! Welcome, ${data.user.name}`, 'success');
         return { success: true };
       }
@@ -239,14 +360,17 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    const userName = user?.name || 'User';
+    const userName = userRef.current?.name || 'User';
     localStorage.removeItem('aits_token');
     setUser(null);
-    resetChatSession();                                  // ← wipe chat
+    userRef.current = null;
+    resetChatSession('guest', null);
     showToast(`Signed out successfully. Goodbye ${userName}!`, 'info');
   };
 
-  /* ── Render ── */
+  /* ═══════════════════════════════════════════════
+   *  RENDER
+   * ═══════════════════════════════════════════════ */
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
@@ -258,7 +382,7 @@ export default function App() {
             background: toast.type === 'success' ? 'rgba(16, 185, 129, 0.95)' : toast.type === 'error' ? 'rgba(244, 63, 94, 0.95)' : 'rgba(6, 182, 212, 0.95)',
             color: '#ffffff', padding: '12px 20px', borderRadius: 'var(--radius-md)',
             boxShadow: '0 10px 30px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
-            gap: '10px', fontSize: '0.9rem', fontWeight: 500, backdropFilter: 'blur(8px)'
+            gap: '10px', fontSize: '0.9rem', fontWeight: 500, backdropFilter: 'blur(8px)',
           }}
         >
           {toast.type === 'success' && <CheckCircle2 size={18} />}

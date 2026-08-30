@@ -1,10 +1,15 @@
 const ragService = require("../services/ragService");
 
 // In-Memory Chat Session Store Keyed by User ID / Session
+// ⚠️  NOTE: This store lives in server memory and is wiped on every Render restart.
+//    Chat persistence for the end-user is handled by frontend localStorage.
 const userChatHistories = {};
 
+/** Generate a collision-safe unique ID */
+const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
 const getWelcomeMessage = (userName) => ({
-  id: `msg-welcome-${Date.now()}`,
+  id: uid('msg-welcome'),
   sender: "bot",
   text: `Hello ${userName ? userName : ''}! Welcome to Apex Institute of Technology & Science (AITS) Assistant. How can I help you today with admissions, courses, fees, or hostel facilities?`,
   timestamp: new Date().toISOString(),
@@ -30,7 +35,7 @@ exports.queryChat = (req, res) => {
     }
 
     const userMessage = {
-      id: `msg-user-${Date.now()}`,
+      id: uid('msg-user'),
       sender: "user",
       text: message.trim(),
       timestamp: new Date().toISOString()
@@ -52,7 +57,7 @@ exports.queryChat = (req, res) => {
     const ragResult = ragService.generateRAGAnswer(message, chunks);
 
     const botResponse = {
-      id: `msg-bot-${Date.now()}`,
+      id: uid('msg-bot'),
       sender: "bot",
       text: ragResult.answer,
       citations: ragResult.citations,
@@ -91,7 +96,7 @@ exports.clearHistory = (req, res) => {
   const sessionKey = req.body.userId || req.query.userId || "guest";
   userChatHistories[sessionKey] = [
     {
-      id: `msg-welcome-${Date.now()}`,
+      id: uid('msg-cleared'),
       sender: "bot",
       text: "Chat history cleared. How can I assist you with AITS college information?",
       timestamp: new Date().toISOString(),
