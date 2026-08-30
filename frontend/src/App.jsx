@@ -7,14 +7,14 @@ import AnalyticsView from './components/AnalyticsView';
 import AuthModal from './components/AuthModal';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('chat');
   const [user, setUser] = useState(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [apiStatus, setApiStatus] = useState(false);
-  const [toast, setToast] = useState(null); // { type: 'success' | 'error' | 'info', message: string }
+  const [toast, setToast] = useState(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ type, message });
@@ -37,22 +37,31 @@ export default function App() {
   const [chunks, setChunks] = useState([]);
   const [stats, setStats] = useState(null);
 
-  // Check Backend Health & Token on Mount
+  // Check Backend Health & Token on Mount with auto-retry
   useEffect(() => {
-    fetchHealth();
+    fetchHealthWithRetry();
     fetchDocuments();
     fetchChunks();
     fetchStats();
     checkStoredUser();
   }, []);
 
-  const fetchHealth = async () => {
+  const fetchHealthWithRetry = async (retries = 3) => {
     try {
       const res = await fetch(`${API_BASE}/health`);
-      if (res.ok) setApiStatus(true);
-      else setApiStatus(false);
+      if (res.ok) {
+        setApiStatus(true);
+      } else if (retries > 0) {
+        setTimeout(() => fetchHealthWithRetry(retries - 1), 4000);
+      } else {
+        setApiStatus(false);
+      }
     } catch {
-      setApiStatus(false);
+      if (retries > 0) {
+        setTimeout(() => fetchHealthWithRetry(retries - 1), 4000);
+      } else {
+        setApiStatus(false);
+      }
     }
   };
 
@@ -101,11 +110,29 @@ export default function App() {
     }
   };
 
+  // Helper fetcher with retry for waking up sleeping Render server
+  const fetchWithRetry = async (url, options, retries = 2) => {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok && retries > 0) {
+        await new Promise((r) => setTimeout(r, 3000));
+        return fetchWithRetry(url, options, retries - 1);
+      }
+      return res;
+    } catch (err) {
+      if (retries > 0) {
+        await new Promise((r) => setTimeout(r, 3000));
+        return fetchWithRetry(url, options, retries - 1);
+      }
+      throw err;
+    }
+  };
+
   // Chat Query Handler
   const handleSendMessage = async (messageText, categoryFilter) => {
     setIsLoadingChat(true);
     try {
-      const res = await fetch(`${API_BASE}/chat/query`, {
+      const res = await fetchWithRetry(`${API_BASE}/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: messageText, categoryFilter })
@@ -113,13 +140,15 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setChatHistory((prev) => [...prev, data.userMessage, data.botResponse]);
+        setApiStatus(true);
       }
     } catch (err) {
       setChatHistory((prev) => [
         ...prev,
         { id: `usr-${Date.now()}`, sender: 'user', text: messageText },
-        { id: `bot-${Date.now()}`, sender: 'bot', text: 'Error connecting to RAG backend server. Please verify backend service is running.' }
+        { id: `bot-${Date.now()}`, sender: 'bot', text: 'Backend server is starting up or unreachable. Please wait ~20 seconds for Render server to wake up, or check VITE_API_BASE_URL setting.' }
       ]);
+      setApiStatus(false);
     } finally {
       setIsLoadingChat(false);
       fetchStats();
@@ -232,7 +261,7 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       
-      {/* Toast Notification Notification Banner */}
+      {/* Toast Notification Banner */}
       {toast && (
         <div 
           style={{ 
@@ -250,8 +279,7 @@ export default function App() {
             gap: '10px',
             fontSize: '0.9rem',
             fontWeight: 500,
-            backdropFilter: 'blur(8px)',
-            animation: 'fadeIn 0.3s ease'
+            backdropFilter: 'blur(8px)'
           }}
         >
           {toast.type === 'success' && <CheckCircle2 size={18} />}
