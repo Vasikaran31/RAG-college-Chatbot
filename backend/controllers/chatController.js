@@ -1,26 +1,32 @@
 const ragService = require("../services/ragService");
 
-// In-Memory Chat Session History
-let chatHistory = [
-  {
-    id: "msg-welcome",
-    sender: "bot",
-    text: "Hello! Welcome to Apex Institute of Technology & Science (AITS) Assistant. How can I help you today with admissions, courses, fees, or hostel facilities?",
-    timestamp: new Date().toISOString(),
-    citations: [],
-    confidenceScore: 1.0
-  }
-];
+// In-Memory Chat Session Store Keyed by User ID / Session
+const userChatHistories = {};
+
+const getWelcomeMessage = (userName) => ({
+  id: `msg-welcome-${Date.now()}`,
+  sender: "bot",
+  text: `Hello ${userName ? userName : ''}! Welcome to Apex Institute of Technology & Science (AITS) Assistant. How can I help you today with admissions, courses, fees, or hostel facilities?`,
+  timestamp: new Date().toISOString(),
+  citations: [],
+  confidenceScore: 1.0
+});
 
 /**
  * Handle user query with RAG search & synthesis
  */
 exports.queryChat = (req, res) => {
   try {
-    const { message, categoryFilter } = req.body;
+    const { message, categoryFilter, userId, userName } = req.body;
 
     if (!message || message.trim().length === 0) {
       return res.status(400).json({ success: false, message: "Query message cannot be empty." });
+    }
+
+    const sessionKey = userId || "guest";
+
+    if (!userChatHistories[sessionKey]) {
+      userChatHistories[sessionKey] = [getWelcomeMessage(userName)];
     }
 
     const userMessage = {
@@ -29,7 +35,7 @@ exports.queryChat = (req, res) => {
       text: message.trim(),
       timestamp: new Date().toISOString()
     };
-    chatHistory.push(userMessage);
+    userChatHistories[sessionKey].push(userMessage);
 
     // 1. Retrieve top matching vector chunks
     let chunks = ragService.retrieveRelevantChunks(message, 4);
@@ -54,7 +60,7 @@ exports.queryChat = (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    chatHistory.push(botResponse);
+    userChatHistories[sessionKey].push(botResponse);
 
     return res.json({
       success: true,
@@ -67,22 +73,25 @@ exports.queryChat = (req, res) => {
 };
 
 /**
- * Get full chat history
+ * Get full chat history for user session
  */
 exports.getHistory = (req, res) => {
+  const sessionKey = req.query.userId || "guest";
+  const history = userChatHistories[sessionKey] || [getWelcomeMessage()];
   return res.json({
     success: true,
-    history: chatHistory
+    history
   });
 };
 
 /**
- * Clear chat history
+ * Clear chat history for user session
  */
 exports.clearHistory = (req, res) => {
-  chatHistory = [
+  const sessionKey = req.body.userId || req.query.userId || "guest";
+  userChatHistories[sessionKey] = [
     {
-      id: "msg-welcome",
+      id: `msg-welcome-${Date.now()}`,
       sender: "bot",
       text: "Chat history cleared. How can I assist you with AITS college information?",
       timestamp: new Date().toISOString(),

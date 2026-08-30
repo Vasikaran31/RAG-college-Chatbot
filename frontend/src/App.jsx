@@ -21,23 +21,23 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const [chatHistory, setChatHistory] = useState([
-    {
-      id: "msg-welcome",
-      sender: "bot",
-      text: "Hello! Welcome to Apex Institute of Technology & Science (AITS) Assistant. How can I help you today with admissions, courses, fees, or hostel facilities?",
-      timestamp: new Date().toISOString(),
-      citations: [],
-      confidenceScore: 1.0
-    }
-  ]);
+  const getInitialWelcomeMessage = (userName) => ({
+    id: `msg-welcome-${Date.now()}`,
+    sender: "bot",
+    text: `Hello${userName ? ' ' + userName : ''}! Welcome to Apex Institute of Technology & Science (AITS) Assistant. How can I help you today with admissions, courses, fees, or hostel facilities?`,
+    timestamp: new Date().toISOString(),
+    citations: [],
+    confidenceScore: 1.0
+  });
+
+  const [chatHistory, setChatHistory] = useState([getInitialWelcomeMessage()]);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
 
   const [documents, setDocuments] = useState([]);
   const [chunks, setChunks] = useState([]);
   const [stats, setStats] = useState(null);
 
-  // Check Backend Health & Token on Mount with auto-retry
+  // Check Backend Health & Token on Mount
   useEffect(() => {
     fetchHealthWithRetry();
     fetchDocuments();
@@ -103,8 +103,12 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.success) setUser(data.user);
-      else localStorage.removeItem('aits_token');
+      if (data.success) {
+        setUser(data.user);
+        setChatHistory([getInitialWelcomeMessage(data.user.name)]);
+      } else {
+        localStorage.removeItem('aits_token');
+      }
     } catch {
       localStorage.removeItem('aits_token');
     }
@@ -135,7 +139,12 @@ export default function App() {
       const res = await fetchWithRetry(`${API_BASE}/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, categoryFilter })
+        body: JSON.stringify({ 
+          message: messageText, 
+          categoryFilter,
+          userId: user ? user.id : 'guest',
+          userName: user ? user.name : 'Guest'
+        })
       });
       const data = await res.json();
       if (data.success) {
@@ -157,11 +166,15 @@ export default function App() {
 
   const handleClearHistory = async () => {
     try {
-      await fetch(`${API_BASE}/chat/history`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/chat/history`, { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user ? user.id : 'guest' })
+      });
     } catch {}
     setChatHistory([
       {
-        id: "msg-welcome",
+        id: `msg-welcome-${Date.now()}`,
         sender: "bot",
         text: "Chat history cleared. How can I assist you with AITS college information?",
         timestamp: new Date().toISOString(),
@@ -210,7 +223,7 @@ export default function App() {
     }
   };
 
-  // Auth Handlers
+  // Auth Handlers with User Session Isolation
   const handleLogin = async (email, password) => {
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
@@ -222,6 +235,8 @@ export default function App() {
       if (data.success) {
         localStorage.setItem('aits_token', data.token);
         setUser(data.user);
+        // Isolate & reset chat session for the logged-in user
+        setChatHistory([getInitialWelcomeMessage(data.user.name)]);
         showToast(`Welcome back, ${data.user.name}!`, 'success');
         return { success: true };
       }
@@ -242,6 +257,8 @@ export default function App() {
       if (data.success) {
         localStorage.setItem('aits_token', data.token);
         setUser(data.user);
+        // Isolate & reset chat session for the new user
+        setChatHistory([getInitialWelcomeMessage(data.user.name)]);
         showToast(`Account created successfully! Welcome, ${data.user.name}`, 'success');
         return { success: true };
       }
@@ -255,6 +272,8 @@ export default function App() {
     const userName = user?.name || 'User';
     localStorage.removeItem('aits_token');
     setUser(null);
+    // Reset to generic fresh chat session on logout
+    setChatHistory([getInitialWelcomeMessage()]);
     showToast(`Signed out successfully. Goodbye ${userName}!`, 'info');
   };
 
