@@ -234,9 +234,13 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('aits_token', data.token);
-        setUser(data.user);
-        // Isolate & reset chat session for the logged-in user
-        setChatHistory([getInitialWelcomeMessage(data.user.name)]);
+        localStorage.removeItem('aits_chat_cache');
+        // Force a completely fresh chat session for the new user
+        setChatHistory([]);
+        setTimeout(() => {
+          setUser(data.user);
+          setChatHistory([getInitialWelcomeMessage(data.user.name)]);
+        }, 0);
         showToast(`Welcome back, ${data.user.name}!`, 'success');
         return { success: true };
       }
@@ -256,9 +260,13 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('aits_token', data.token);
-        setUser(data.user);
-        // Isolate & reset chat session for the new user
-        setChatHistory([getInitialWelcomeMessage(data.user.name)]);
+        localStorage.removeItem('aits_chat_cache');
+        // Force a completely fresh chat session for the new user
+        setChatHistory([]);
+        setTimeout(() => {
+          setUser(data.user);
+          setChatHistory([getInitialWelcomeMessage(data.user.name)]);
+        }, 0);
         showToast(`Account created successfully! Welcome, ${data.user.name}`, 'success');
         return { success: true };
       }
@@ -271,9 +279,13 @@ export default function App() {
   const handleLogout = () => {
     const userName = user?.name || 'User';
     localStorage.removeItem('aits_token');
-    setUser(null);
-    // Reset to generic fresh chat session on logout
-    setChatHistory([getInitialWelcomeMessage()]);
+    localStorage.removeItem('aits_chat_cache');
+    // Force a completely fresh chat session on logout
+    setChatHistory([]);
+    setTimeout(() => {
+      setUser(null);
+      setChatHistory([getInitialWelcomeMessage()]);
+    }, 0);
     showToast(`Signed out successfully. Goodbye ${userName}!`, 'info');
   };
 
@@ -328,6 +340,7 @@ export default function App() {
       <main style={{ flex: 1 }}>
         {activeTab === 'chat' && (
           <ChatInterface
+            key={user ? user.id : 'guest'}
             history={chatHistory}
             onSendMessage={handleSendMessage}
             onClearHistory={handleClearHistory}
